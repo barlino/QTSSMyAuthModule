@@ -1,0 +1,7 @@
+<MODULE NAME="QTSSMyAuthModule" >
+	<PREF NAME="enabled" TYPE="Bool16" >true</PREF>
+	<PREF NAME="mysql_host" >xxx.xxx.xxx.xxx</PREF>
+	<PREF NAME="mysql_user" >xxx</PREF>
+	<PREF NAME="mysql_password" >xxx</PREF>
+	<PREF NAME="mysql_name" >xxx</PREF>
+</MODULE>

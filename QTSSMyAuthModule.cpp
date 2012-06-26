@@ -52,13 +52,13 @@ QTSS_Error QTSSMyAuthDispatch(QTSS_Role inRole, QTSS_RoleParamPtr inParams)
             return Initialize(&inParams->initParams);
         case QTSS_RereadPrefs_Role:
             return RereadPrefs();
-	case QTSS_RTSPAuthorize_Role:
-	{
-		if (!sEnabled) break;
-		return AuthorizeRequest(&inParams->rtspAuthParams);
-	}
-	case QTSS_Shutdown_Role:
-		return DeInitialize();
+				case QTSS_RTSPAuthorize_Role:
+				{
+					if (!sEnabled) break;
+					return AuthorizeRequest(&inParams->rtspAuthParams);
+				}
+				case QTSS_Shutdown_Role:
+					return DeInitialize();
     }
     return QTSS_NoErr;
 }
@@ -69,8 +69,8 @@ QTSS_Error Register(QTSS_Register_Params* inParams)
 	// Do role & attribute setup
 	(void)QTSS_AddRole(QTSS_Initialize_Role);
 	(void)QTSS_AddRole(QTSS_RereadPrefs_Role);
-    	(void)QTSS_AddRole(QTSS_RTSPAuthorize_Role);
-    	(void)QTSS_AddRole(QTSS_Shutdown_Role);
+	(void)QTSS_AddRole(QTSS_RTSPAuthorize_Role);
+	(void)QTSS_AddRole(QTSS_Shutdown_Role);
 
 	// Add an RTSP session attribute to track if the request is the first request of the session
 	(void)QTSS_AddStaticAttribute(qtssRTSPSessionObjectType, sIsFirstRequestName_RTSPSession, NULL, qtssAttrDataTypeBool16);
@@ -91,11 +91,13 @@ QTSS_Error Initialize(QTSS_Initialize_Params* inParams)
 	sServer = inParams->inServer;
 	sPrefs = QTSSModuleUtils::GetModulePrefsObject(inParams->inModule);
 	sErrorLog = inParams->inErrorLogStream;
-	sObjMyAuth = new MyAuth();
+	sObjMyAuth = new MyAuth(sPrefs);
 
 	// Set our version and description
 	(void)QTSS_SetValue(inParams->inModule, qtssModDesc, 0, sDescription, ::strlen(sDescription));
 	(void)QTSS_SetValue(inParams->inModule, qtssModVersion, 0, &sVersion, sizeof(sVersion));
+
+	QTSSModuleUtils::LogErrorStr(qtssMessageVerbosity, "QTSSMyAuthModule_Initialize");
 
 	RereadPrefs();
 	return QTSS_NoErr;
@@ -104,62 +106,42 @@ QTSS_Error Initialize(QTSS_Initialize_Params* inParams)
 
 QTSS_Error RereadPrefs()
 {
+	QTSSModuleUtils::LogErrorStr(qtssMessageVerbosity, "QTSSMyAuthModule_RereadPrefs");
 	QTSSModuleUtils::GetAttribute(sPrefs, "enabled", qtssAttrDataTypeBool16, &sEnabled, &kDefaultEnabled, sizeof(sEnabled));
+  
 	return QTSS_NoErr;
 }
 
 QTSS_Error AuthorizeRequest(QTSS_StandardRTSP_Params* inParams)
 {
+	QTSSModuleUtils::LogErrorStr(qtssMessageVerbosity, "QTSSMyAuthModule_AuthorizeRequest");
 	// Step 1. Is this the first request of a session? Authentication needed only on first request, return QTSS_NoErr on subsequent calls
 	Bool16 *isFirstRequest  = NULL;
 	UInt32 theLen = sizeof(isFirstRequest);
-
+	
 	(void)QTSS_GetValuePtr(inParams->inRTSPSession, sIsFirstRequestAttr_RTSPSession, 0, (void**)&isFirstRequest, &theLen);
 	if (isFirstRequest == NULL)
 		(void)QTSS_SetValue(inParams->inRTSPSession, sIsFirstRequestAttr_RTSPSession, 0, &sTrue, sizeof(sTrue));
 	else
 		return QTSS_NoErr;
 
-	/* Step 2. Retrieve the URL: raw material #1 needed to authenticate a request */
-	char* szURL = NULL;
-	StrPtrLen theURI;
-	(void)QTSS_GetValuePtr(inParams->inRTSPRequest, /* qtssRTSPReqURI */ qtssRTSPReqAbsoluteURL, 0, (void**)&theURI.Ptr, &theURI.Len);
-	const char* tmpPtr = strstr( theURI.Ptr, " RTSP/1.0" );
-	UInt32 iSizeOfURL = (UInt32) (tmpPtr - theURI.Ptr);
-	szURL = (char*) QTSS_New( (FourCharCode) QTSS_Milliseconds(), iSizeOfURL + 1 );
-	::strncpy( szURL, theURI.Ptr, iSizeOfURL );
-	szURL[ iSizeOfURL ] = 0;
+	sObjMyAuth->setRTSPParam(inParams);
 
-	/* Step 3. Retrieve the Client IP Address: raw material #2 needed to authenticate a request */
-	StrPtrLen theClientIP;
-	(void)QTSS_GetValuePtr(inParams->inRTSPSession, qtssRTSPSesRemoteAddrStr, 0, (void**)&theClientIP.Ptr, &theClientIP.Len);
-
-	/* Step 4. Log the entire URI if debug logging is turned on */
-	/* Possible values for /etc/streaming/streamingserver.xml "error_logfile_verbosity" entry:
-	qtssFatalVerbosity = 0, qtssWarningVerbosity = 1, qtssMessageVerbosity = 2, qtssAssertVerbosity = 3, qtssDebugVerbosity = 4	*/
-
-	(void)QTSS_Write(sErrorLog, theURI.Ptr, theURI.Len, NULL, qtssDebugVerbosity);
-
-	/* Step 5. Authenticate */
-	SInt32 iAuthRes = sObjMyAuth->AuthenticateURL( szURL, theClientIP.Ptr );
-	if( iAuthRes != NO_ERROR_CODE )
+	SInt32 iAuthRes = sObjMyAuth->authorizeTicket();
+	if (iAuthRes != NO_ERROR_CODE)
 	{
 		char szReason[ MAX_AUTH_DECLINE_REASON ];
 		StrPtrLen clientMsg( MyAuth::GetReason( iAuthRes, szReason ) );
 
-		char* szError = (char*) QTSS_New( (FourCharCode) QTSS_Milliseconds(), ::strlen( szURL ) + theClientIP.Len + MAX_AUTH_DECLINE_REASON + 100 );
-		::sprintf( szError, "MyAuthModule: Authentication declined, reason: [%s], c-ip: [%s], url: [%s]", szReason, theClientIP.Ptr, szURL );
-		(void)QTSS_Write(sErrorLog, szError, ::strlen( szError ), NULL, qtssMessageVerbosity);
-
-		QTSS_Delete( (void*) szError );
-		QTSSModuleUtils::SendErrorResponseWithMessage(inParams->inRTSPRequest, qtssClientUnAuthorized, &clientMsg);
+		QTSSModuleUtils::SendErrorResponseWithMessage(inParams->inRTSPRequest, qtssClientUnAuthorized, &clientMsg);	
 	}
-	QTSS_Delete( (void*) szURL );
 	return QTSS_NoErr;
 }
 
+
 QTSS_Error DeInitialize()
 {
+	QTSSModuleUtils::LogErrorStr(qtssMessageVerbosity, "QTSSMyAuthModule_DeInitiaize");
 	//Free or delete stuff here...
 	delete sObjMyAuth;
 	return QTSS_NoErr;

@@ -1,3 +1,47 @@
 forked from http://www.codeproject.com/Articles/41874/Darwin-Streaming-Server-6-0-3-setup-customization
 
 I am tring to integrate the MySQL into the module for authorization
+
+My Dev Environment:
+	CentOS6 in Arch x86_64
+
+PreRequire:
+	shell> yum install mysql-devel
+	install Darwin Streaming Server 6.0.3
+
+	please checkout into DSS_Source/APIModules/ !!! important
+	shell> git co https://github.com/barlino/QTSSMyAuthModule.git DSS_Source/APIModules
+
+Config:
+	if your dev machine is 32bit
+		just modify the LINKOPTS -L/usr/lib64 to -L/usr/lib in Makefile.POSIX
+	
+
+Build:
+	shell> chmod +x build 
+	shell> ./build
+	if the file called QTSSMyAuthModule created, then it was compiled successfully
+	
+Install:
+	by script:
+		shell> ./build install
+		the default module destination is /usr/local/sbin/StreamingServerModules/
+
+	There is one more thing. please concatenate the content of config.xml into streamingserver.xml which located in /etc/streaming/ by default.
+	That's it 
+
+Run:
+	shell> /usr/local/sbin/DarwinStreamingServer -d
+	
+if you saw message as follow, yup! We are successfully  load a dynamic module for Darwin
+INFO: Module Loaded...QTSSMyAuthModule [dynamic]
+INFO: Module Loaded...QTSSFileModule [static]
+INFO: Module Loaded...QTSSReflectorModule [static]
+INFO: Module Loaded...QTSSRelayModule [static]
+INFO: Module Loaded...QTSSAccessLogModule [static]
+INFO: Module Loaded...QTSSFlowControlModule [static]
+INFO: Module Loaded...QTSSPosixFileSysModule [static]
+INFO: Module Loaded...QTSSAdminModule [static]
+INFO: Module Loaded...QTSSMP3StreamingModule [static]
+INFO: Module Loaded...QTSSAccessModule [static]
+	
